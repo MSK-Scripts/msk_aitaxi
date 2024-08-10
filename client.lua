@@ -34,6 +34,7 @@ getVehNodeType = function(coords)
 end
 
 callTaxi = function()
+    if not canCallTaxi then return end
     local npcId, vehId = math.random(#Config.Taxi.pedmodels), math.random(#Config.Taxi.vehicles)
     local npc, veh = Config.Taxi.pedmodels[npcId], Config.Taxi.vehicles[vehId]
     taskDriverName = npc.name or 'Alex'
@@ -49,7 +50,7 @@ callTaxi = function()
     local vehicleSpawned = spawnVehicle(driverHash, vehHash)
 
     if not vehicleSpawned then 
-        advancedNotification(Translation[Config.Locale]['not_available'], 'Downtown Cab Co.', 'Taxi', 'CHAR_TAXI')
+        AdvancedNotification(Translation[Config.Locale]['not_available'], 'Downtown Cab Co.', 'Taxi', 'CHAR_TAXI')
         return 
     end
 
@@ -57,7 +58,7 @@ callTaxi = function()
     local speed = (Config.SpeedZones[getVehNodeType(toCoords)] or 60) / Config.SpeedType
     TaskVehicleDriveToCoordLongrange(taskNPC, taskVehicle, toCoords.x, toCoords.y, toCoords.z, speed, Config.DrivingStyle, 5.0)
     SetPedKeepTask(taskNPC, true)
-    advancedNotification(Translation[Config.Locale]['on_the_way'], 'Downtown Cab Co.', 'Taxi', 'CHAR_TAXI')
+    AdvancedNotification(Translation[Config.Locale]['on_the_way'], 'Downtown Cab Co.', 'Taxi', 'CHAR_TAXI')
     taxiOnRoad = true
 end
 exports('callTaxi', callTaxi)
@@ -106,7 +107,7 @@ startDriveToCoords = function(waypoint)
 
         if distance < 10.0 then
             PlayPedAmbientSpeechNative(taskNPC, "TAXID_CLOSE_AS_POSS", "SPEECH_PARAMS_FORCE_NORMAL")
-            advancedNotification(Translation[Config.Locale]['end'], 'Downtown Cab Co.', taskDriverName, 'CHAR_TAXI')
+            AdvancedNotification(Translation[Config.Locale]['end'], 'Downtown Cab Co.', taskDriverName, 'CHAR_TAXI')
             TriggerServerEvent('msk_aitaxi:payTaxiPrice', math.ceil(Config.Price.base + (Config.Price.tick * ((GetGameTimer() - taskStartTime) / Config.Price.tickTime))))
             taxiDriveFinished = true
             break
@@ -132,19 +133,19 @@ abortTaxiDrive = function(keyPressed)
     taxiDriveCancelled = true
 
     if not taxiInDriveMode then
-        advancedNotification(Translation[Config.Locale]['abort'], 'Downtown Cab Co.', taskDriverName, 'CHAR_TAXI')
+        AdvancedNotification(Translation[Config.Locale]['abort'], 'Downtown Cab Co.', taskDriverName, 'CHAR_TAXI')
         leaveTarget()
         return
     end
 
     if not taxiDriveFinished and not keyPressed then
-        advancedNotification(Translation[Config.Locale]['abort'], 'Downtown Cab Co.', taskDriverName, 'CHAR_TAXI')
+        AdvancedNotification(Translation[Config.Locale]['abort'], 'Downtown Cab Co.', taskDriverName, 'CHAR_TAXI')
         leaveTarget()
         return
     end
 
     if not taxiDriveFinished and keyPressed then
-        advancedNotification(Translation[Config.Locale]['abort'], 'Downtown Cab Co.', taskDriverName, 'CHAR_TAXI')
+        AdvancedNotification(Translation[Config.Locale]['abort'], 'Downtown Cab Co.', taskDriverName, 'CHAR_TAXI')
         TaskVehicleTempAction(taskNPC, taskVehicle, 27, 1000)
     end
 
@@ -215,7 +216,7 @@ enteredVehicle = function(vehicle, plate, seat)
     SetVehicleDoorsShut(vehicle, false)
     SetPedIntoVehicle(PlayerPedId(), taskVehicle, seat)
     PlayPedAmbientSpeechNative(taskNPC, "TAXID_WHERE_TO", "SPEECH_PARAMS_FORCE_NORMAL")
-    advancedNotification(Translation[Config.Locale]['welcome']:format(taskDriverName), 'Downtown Cab Co.', taskDriverName, 'CHAR_TAXI')
+    AdvancedNotification(Translation[Config.Locale]['welcome']:format(taskDriverName), 'Downtown Cab Co.', taskDriverName, 'CHAR_TAXI')
 
     while taxiOnRoad and not IsWaypointActive() do
         Wait(1000)
@@ -312,33 +313,12 @@ CreateThread(function()
         if taxiOnRoad and taskVehicle and taxiInDriveMode and taskStartPosition and not taxiDriveCancelled and not taxiDriveFinished then
             sleep = 1
             HelpNotification(Translation[Config.Locale]['input']:format(Config.AbortTaxiDrive.hotkey))
-            local distance = #(taskStartPosition - GetEntityCoords(taskVehicle))
-            DrawGenericText(('Price: $%s'):format(comma(math.ceil(Config.Price.base + (Config.Price.tick * ((GetGameTimer() - taskStartTime) / Config.Price.tickTime))))))
+            DrawGenericText(Translation[Config.Locale]['price']:format(comma(math.ceil(Config.Price.base + (Config.Price.tick * ((GetGameTimer() - taskStartTime) / Config.Price.tickTime))))))
         end
 
         Wait(sleep)
     end
 end)
-
-HelpNotification = function(text)
-    BeginTextCommandDisplayHelp('STRING')
-    AddTextComponentSubstringPlayerName(text)
-    EndTextCommandDisplayHelp(0, false, true, -1)
-end
-
-DrawGenericText = function(text)
-	SetTextColour(Config.Price.color.r, Config.Price.color.g, Config.Price.color.b, Config.Price.color.a)
-	SetTextFont(0)
-	SetTextScale(0.30, 0.30)
-	SetTextWrap(0.0, 1.0)
-	SetTextCentre(true)
-	SetTextDropshadow(0, 0, 0, 0, 255)
-	SetTextEdge(1, 0, 0, 0, 205)
-    SetTextOutline()
-	BeginTextCommandDisplayText("STRING")
-	AddTextComponentSubstringPlayerName(text)
-	EndTextCommandDisplayText(Config.Price.position.width, Config.Price.position.height)
-end
 
 loadModel = function(modelHash)
     if not HasModelLoaded(modelHash) then
@@ -368,6 +348,13 @@ GetAvailableParkingSpots = function()
     end
 end
 
+GetPedVehicleSeat = function(ped, vehicle)
+    for i = -1, 16 do
+        if (GetPedInVehicleSeat(vehicle, i) == ped) then return i end
+    end
+    return -1
+end
+
 round = function(num, decimal)
     return tonumber(string.format("%." .. (decimal or 0) .. "f", num))
 end
@@ -387,7 +374,27 @@ comma = function(int, tag)
     return newInt
 end
 
-advancedNotification = function(text, title, subtitle, icon, flash, icontype)
+HelpNotification = function(text)
+    BeginTextCommandDisplayHelp('STRING')
+    AddTextComponentSubstringPlayerName(text)
+    EndTextCommandDisplayHelp(0, false, true, -1)
+end
+
+DrawGenericText = function(text)
+	SetTextColour(Config.Price.color.r, Config.Price.color.g, Config.Price.color.b, Config.Price.color.a)
+	SetTextFont(0)
+	SetTextScale(0.30, 0.30)
+	SetTextWrap(0.0, 1.0)
+	SetTextCentre(true)
+	SetTextDropshadow(0, 0, 0, 0, 255)
+	SetTextEdge(1, 0, 0, 0, 205)
+    SetTextOutline()
+	BeginTextCommandDisplayText("STRING")
+	AddTextComponentSubstringPlayerName(text)
+	EndTextCommandDisplayText(Config.Price.position.width, Config.Price.position.height)
+end
+
+AdvancedNotification = function(text, title, subtitle, icon, flash, icontype)
     if not flash then flash = true end
     if not icontype then icontype = 1 end
     if not icon then icon = 'CHAR_TAXI' end

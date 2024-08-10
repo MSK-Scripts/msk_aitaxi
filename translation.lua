@@ -1,6 +1,7 @@
 Translation = {
     ['de'] = {
         ['input'] = 'Drücke ~r~X~s~ um die Fahrt zu stoppen',
+        ['price'] = 'Aktueller Preis: $%s',
         ['paid'] = 'Du hast $%s bezahlt',
         ['not_available'] = 'Es ist gerade kein Fahrer verfügbar, bitte versuche es erneut!',
         ['on_the_way'] = 'Ein Fahrer ist unterwegs zu dir.',
@@ -10,6 +11,7 @@ Translation = {
     },
     ['en'] = {
         ['input'] = 'Press ~r~X~s~ to abort the taxi drive',
+        ['price'] = 'Current Price: $%s',
         ['paid'] = 'You paid $%s',
         ['not_available'] = 'Currently is no driver available, please call us again!',
         ['on_the_way'] = 'The Driver is on the way.',
