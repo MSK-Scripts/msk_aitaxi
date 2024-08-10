@@ -17,7 +17,7 @@
 ## Requirements
 * [ESX Legacy](https://github.com/esx-framework/esx_core)
 
-## Optional Requirements
+### Optional Requirements
 * [esx_addonaccount](https://github.com/esx-framework/esx_addonaccount) - *(This is optional)*
 
 ## My other Scripts
