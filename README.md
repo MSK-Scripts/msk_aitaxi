@@ -1,6 +1,8 @@
 # msk_aitaxi
 [ESX] AI Taxi
 
+**[Forum Post](https://forum.cfx.re/t/free-msk-ai-taxi/5257890)**
+
 ## Description
 * You can call a taxi with a command
 * You can abort the taxi with a command and hotkey
