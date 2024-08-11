@@ -13,7 +13,7 @@
 * The Taxi will change the speed on specified speedzones
 
 ## Resmon
-* Not in use: 0.00ms
+* Idle: 0.00ms
 * In use: 0.07ms
 
 ## Requirements
