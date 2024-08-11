@@ -1,5 +1,5 @@
 # msk_aitaxi
-[ESX] AI Taxi
+[ESX/QBCore] AI Taxi
 
 **[Forum Post](https://forum.cfx.re/t/free-msk-ai-taxi/5257890)**
 
@@ -14,13 +14,14 @@
 
 ## Resmon
 * Not in use: 0.00ms
-* In use: ~0.06ms
+* In use: 0.07ms
 
 ## Requirements
-* [ESX Legacy](https://github.com/esx-framework/esx_core)
+* [ESX Legacy](https://github.com/esx-framework/esx_core) or [QBCore](https://github.com/qbcore-framework/qb-core)
 
 ### Optional Requirements
 * [esx_addonaccount](https://github.com/esx-framework/esx_addonaccount) - *(This is optional)*
+* [qb-banking](https://github.com/qbcore-framework/qb-banking) - *(This is optional)*
 
 ## My other Scripts
 ### Paid

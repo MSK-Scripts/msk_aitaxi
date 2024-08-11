@@ -1,8 +1,13 @@
 local canCallTaxi = true
-local taskVehicle, taskNPC, taskBlip, taskStartPosition, taskEndPosition = nil, nil, nil, nil, nil
-local taskDriverName, taskDriverVoice = 'Alex', 'A_M_M_EASTSA_02_LATINO_FULL_01'
-local taxiOnRoad, taxiInDriveMode, taxiDriveFinished, taxiDriveCancelled = false, false, false, false
-local taskStartTime = GetGameTimer()
+local task, taxi = {}, {}
+
+if Config.Framework == 'ESX' then
+    ESX = exports["es_extended"]:getSharedObject()
+elseif Config.Framework == 'QBCore' then
+    QBCore = exports['qb-core']:GetCoreObject()
+elseif Config.Framework == 'Standalone' then
+    -- Add your own code here
+end
 
 if Config.Command.enable then
     RegisterCommand(Config.Command.command, function(source, args, raw)
@@ -23,6 +28,11 @@ end
 exports('toggleCanCallTaxi', toggleCanCallTaxi)
 RegisterNetEvent('msk_aitaxi:canCallTaxi', toggleCanCallTaxi)
 
+getStartingLocation = function(coords)
+    local found, spawnPos, spawnHeading = GetClosestVehicleNodeWithHeading(coords.x + math.random(-Config.SpawnRadius, Config.SpawnRadius), coords.y + math.random(-Config.SpawnRadius, Config.SpawnRadius), coords.z, 0, 3.0, 0)
+    return found, spawnPos, spawnHeading
+end
+
 getStoppingLocation = function(coords)
     local _, nCoords = GetClosestVehicleNode(coords.x, coords.y, coords.z, 1, 3.0, 0)
     return nCoords
@@ -37,8 +47,8 @@ callTaxi = function()
     if not canCallTaxi then return end
     local npcId, vehId = math.random(#Config.Taxi.pedmodels), math.random(#Config.Taxi.vehicles)
     local npc, veh = Config.Taxi.pedmodels[npcId], Config.Taxi.vehicles[vehId]
-    taskDriverName = npc.name or 'Alex'
-    taskDriverVoice = npc.voice or 'A_M_M_EASTSA_02_LATINO_FULL_01'
+    taxi.driverName = npc.name or 'Alex'
+    taxi.driverVoice = npc.voice or 'A_M_M_EASTSA_02_LATINO_FULL_01'
 
     local driverHash = GetHashKey(npc.model)
     local vehHash = GetHashKey(veh)
@@ -47,124 +57,158 @@ callTaxi = function()
     loadModel(vehHash)
 
     local playerCoords = GetEntityCoords(PlayerPedId())
-    local vehicleSpawned = spawnVehicle(driverHash, vehHash)
+    local vehicleSpawned = spawnVehicle(playerCoords, driverHash, vehHash)
 
     if not vehicleSpawned then 
         AdvancedNotification(Translation[Config.Locale]['not_available'], 'Downtown Cab Co.', 'Taxi', 'CHAR_TAXI')
         return 
     end
 
-    local toCoords = getStoppingLocation(playerCoords)
-    local speed = (Config.SpeedZones[getVehNodeType(toCoords)] or 60) / Config.SpeedType
-    TaskVehicleDriveToCoordLongrange(taskNPC, taskVehicle, toCoords.x, toCoords.y, toCoords.z, speed, Config.DrivingStyle, 5.0)
-    SetPedKeepTask(taskNPC, true)
-    AdvancedNotification(Translation[Config.Locale]['on_the_way'], 'Downtown Cab Co.', 'Taxi', 'CHAR_TAXI')
-    taxiOnRoad = true
+    startDriveToPlayer(playerCoords)
 end
 exports('callTaxi', callTaxi)
 
-spawnVehicle = function(driverHash, vehHash)
-    local found, coords = GetAvailableParkingSpots()
+spawnVehicle = function(playerCoords, driverHash, vehHash)
+    local found, coords, heading = getStartingLocation(playerCoords)
     if not found then return false end
 
-    taskVehicle = CreateVehicle(vehHash, vector3(coords.x, coords.y, coords.z), coords.w, true, false)
-    SetVehicleOnGroundProperly(taskVehicle)
-    SetVehicleUndriveable(taskVehicle, true)
-    SetVehicleIndividualDoorsLocked(taskVehicle, 0, 2)
-    SetVehicleDoorCanBreak(taskVehicle, 0, false)
-    SetVehicleFuelLevel(taskVehicle, 100.0)
+    task.vehicle = CreateVehicle(vehHash, vector3(coords.x, coords.y, coords.z), heading, true, true)
+    SetVehicleOnGroundProperly(task.vehicle)
+    SetVehicleEngineOn(task.vehicle, true, true, false)
+    SetVehicleUndriveable(task.vehicle, true)
+    SetVehicleIndividualDoorsLocked(task.vehicle, 0, 2)
+    SetVehicleDoorCanBreak(task.vehicle, 0, false)
+    SetVehicleFuelLevel(task.vehicle, 100.0)
+    DecorSetFloat(task.vehicle, '_FUEL_LEVEL', 100.0)
+    SetEntityAsMissionEntity(task.vehicle, true, true)
 
-    taskNPC = CreatePedInsideVehicle(taskVehicle, 26, driverHash, -1, true, false)
-    SetBlockingOfNonTemporaryEvents(taskNPC, true)
-    SetAmbientVoiceName(taskNPC, taskDriverVoice)
-    SetDriverAbility(taskNPC, 1.0)
-    SetPedIntoVehicle(taskNPC, taskVehicle, -1)
+    task.npc = CreatePedInsideVehicle(task.vehicle, 26, driverHash, -1, true, true)
+    SetAmbientVoiceName(task.npc, taxi.driverVoice)
+    SetBlockingOfNonTemporaryEvents(task.npc, true)
+    SetDriverAbility(task.npc, 1.0)
+    SetEntityAsMissionEntity(task.npc, true, true)
 
-    taskBlip = AddBlipForEntity(taskVehicle)
-    SetBlipSprite(taskBlip, 198)
-    SetBlipFlashes(taskBlip, true)
-    SetBlipColour(taskBlip, 5)
+    task.blip = AddBlipForEntity(task.vehicle)
+    SetBlipSprite(task.blip, 198)
+    SetBlipFlashes(task.blip, true)
+    SetBlipColour(task.blip, 5)
 
     return true
 end
 
-startDriveToCoords = function(waypoint)
-    taskStartTime = GetGameTimer()
-    taskStartPosition = GetEntityCoords(PlayerPedId())
-    PlayPedAmbientSpeechNative(taskNPC, "TAXID_BEGIN_JOURNEY", "SPEECH_PARAMS_FORCE_NORMAL")
+startDriveToPlayer = function(playerCoords)
+    local toCoords = getStoppingLocation(playerCoords)
+    local speed = (Config.SpeedZones[getVehNodeType(toCoords)] or Config.SpeedZones[2]) / Config.SpeedType
 
-    local toCoords = getStoppingLocation(waypoint)
-    taskEndPosition = toCoords
-    local speed = (Config.SpeedZones[getVehNodeType(toCoords)] or 60) / Config.SpeedType
-    TaskVehicleDriveToCoordLongrange(taskNPC, taskVehicle, toCoords.x, toCoords.y, toCoords.z, speed, Config.DrivingStyle, 5.0)
-    SetPedKeepTask(taskNPC, true)
-    taxiInDriveMode = true
+    TaskVehicleDriveToCoordLongrange(task.npc, task.vehicle, toCoords.x, toCoords.y, toCoords.z, speed, Config.DrivingStyle, 5.0)
+    SetPedKeepTask(task.npc, true)
+    AdvancedNotification(Translation[Config.Locale]['on_the_way'], 'Downtown Cab Co.', 'Taxi', 'CHAR_TAXI')
+    taxi.onRoad = true
 
-    while taxiOnRoad and taxiInDriveMode and not taxiDriveFinished do
+    while taxi.onRoad and not taxi.inDriveMode do
         Wait(500)
-        local vehicleCoords = GetEntityCoords(taskVehicle)
+        local vehicleCoords = GetEntityCoords(task.vehicle)
         local distance = #(toCoords - vehicleCoords)
 
+        if distance > 20.0 then
+            local speed = (Config.SpeedZones[getVehNodeType(vehicleCoords)] or Config.SpeedZones[2]) / Config.SpeedType
+            TaskVehicleDriveToCoordLongrange(task.npc, task.vehicle, toCoords.x, toCoords.y, toCoords.z, speed, Config.DrivingStyle, 5.0)
+            SetPedKeepTask(task.npc, true)
+        end
+        
+        if distance <= 20.0 then
+            local speed = (Config.SpeedZones[getVehNodeType(toCoords)] or Config.SpeedZones[2]) / Config.SpeedType
+            TaskVehicleDriveToCoordLongrange(task.npc, task.vehicle, toCoords.x, toCoords.y, toCoords.z, speed / 2, Config.DrivingStyle, 5.0)
+            SetPedKeepTask(task.npc, true)
+            break
+        end
+    end
+end
+
+checkWaypoint = function()
+    while taxi.onRoad and not IsWaypointActive() do
+        Wait(1000)
+    end
+    Wait(2500)
+    if not taxi.onRoad then return end
+    if not IsWaypointActive() then return end
+
+    taxi.finished = false
+    startDriveToCoords(GetBlipCoords(GetFirstBlipInfoId(8)))
+end
+
+startDriveToCoords = function(waypoint)
+    task.startTime = GetGameTimer()
+    PlayPedAmbientSpeechNative(task.npc, "TAXID_BEGIN_JOURNEY", "SPEECH_PARAMS_FORCE_NORMAL")
+
+    local toCoords = getStoppingLocation(waypoint)
+    local speed = (Config.SpeedZones[getVehNodeType(toCoords)] or Config.SpeedZones[2]) / Config.SpeedType
+    TaskVehicleDriveToCoordLongrange(task.npc, task.vehicle, toCoords.x, toCoords.y, toCoords.z, speed, Config.DrivingStyle, 5.0)
+    SetPedKeepTask(task.npc, true)
+    taxi.inDriveMode = true
+    CreateThread(drawPrice)
+
+    while taxi.onRoad and taxi.inDriveMode and not taxi.canceled and not taxi.finished do
+        Wait(500)
+        local vehicleCoords = GetEntityCoords(task.vehicle)
+        local distance = #(toCoords - vehicleCoords)
+
+        if distance > 20.0 then
+            local speed = (Config.SpeedZones[getVehNodeType(vehicleCoords)] or Config.SpeedZones[2]) / Config.SpeedType
+            TaskVehicleDriveToCoordLongrange(task.npc, task.vehicle, toCoords.x, toCoords.y, toCoords.z, speed, Config.DrivingStyle, 5.0)
+            SetPedKeepTask(task.npc, true)
+        end
+
+        if distance <= 20.0 then
+            local speed = (Config.SpeedZones[getVehNodeType(vehicleCoords)] or Config.SpeedZones[2]) / Config.SpeedType
+            TaskVehicleDriveToCoordLongrange(task.npc, task.vehicle, toCoords.x, toCoords.y, toCoords.z, speed / 2, Config.DrivingStyle, 5.0)
+            SetPedKeepTask(task.npc, true)
+        end
+
         if distance < 10.0 then
-            PlayPedAmbientSpeechNative(taskNPC, "TAXID_CLOSE_AS_POSS", "SPEECH_PARAMS_FORCE_NORMAL")
-            AdvancedNotification(Translation[Config.Locale]['end'], 'Downtown Cab Co.', taskDriverName, 'CHAR_TAXI')
-            TriggerServerEvent('msk_aitaxi:payTaxiPrice', math.ceil(Config.Price.base + (Config.Price.tick * ((GetGameTimer() - taskStartTime) / Config.Price.tickTime))))
-            taxiDriveFinished = true
+            PlayPedAmbientSpeechNative(task.npc, "TAXID_CLOSE_AS_POSS", "SPEECH_PARAMS_FORCE_NORMAL")
+            AdvancedNotification(Translation[Config.Locale]['end'], 'Downtown Cab Co.', taxi.driverName, 'CHAR_TAXI')
+            TriggerServerEvent('msk_aitaxi:payTaxiPrice', math.ceil(Config.Price.base + (Config.Price.tick * ((GetGameTimer() - task.startTime) / Config.Price.tickTime))))
+            taxi.finished = true
             break
         end
     end
 
-    if taxiDriveCancelled then return end
-
-    while taxiOnRoad and not IsWaypointActive() do
-        Wait(1000)
-    end
-    Wait(2500)
-    if not taxiOnRoad then return end
-    if not IsWaypointActive() then return end
-
-    startDriveToCoords(GetBlipCoords(GetFirstBlipInfoId(8)))
+    if taxi.canceled then return end
+    checkWaypoint()
 end
 
 abortTaxiDrive = function(keyPressed)
-    if not taxiOnRoad then return end
-    if taxiDriveCancelled then return end
-    if taxiDriveFinished then return end
-    taxiDriveCancelled = true
+    if not taxi.onRoad then return end
+    if taxi.canceled then return end
+    if taxi.finished then return end
+    taxi.canceled = true
 
-    if not taxiInDriveMode then
-        AdvancedNotification(Translation[Config.Locale]['abort'], 'Downtown Cab Co.', taskDriverName, 'CHAR_TAXI')
+    if not taxi.inDriveMode then
+        AdvancedNotification(Translation[Config.Locale]['abort'], 'Downtown Cab Co.', taxi.driverName, 'CHAR_TAXI')
         leaveTarget()
         return
     end
 
-    if not taxiDriveFinished and not keyPressed then
-        AdvancedNotification(Translation[Config.Locale]['abort'], 'Downtown Cab Co.', taskDriverName, 'CHAR_TAXI')
+    if not taxi.finished and not keyPressed then
+        AdvancedNotification(Translation[Config.Locale]['abort'], 'Downtown Cab Co.', taxi.driverName, 'CHAR_TAXI')
         leaveTarget()
         return
     end
 
-    if not taxiDriveFinished and keyPressed then
-        AdvancedNotification(Translation[Config.Locale]['abort'], 'Downtown Cab Co.', taskDriverName, 'CHAR_TAXI')
-        TaskVehicleTempAction(taskNPC, taskVehicle, 27, 1000)
+    if not taxi.finished and keyPressed then
+        AdvancedNotification(Translation[Config.Locale]['abort'], 'Downtown Cab Co.', taxi.driverName, 'CHAR_TAXI')
+        TaskVehicleTempAction(task.npc, task.vehicle, 27, 1000)
     end
 
-    TriggerServerEvent('msk_aitaxi:payTaxiPrice', math.ceil(Config.Price.base + (Config.Price.tick * ((GetGameTimer() - taskStartTime) / Config.Price.tickTime))))
-    taxiDriveFinished = true
+    TriggerServerEvent('msk_aitaxi:payTaxiPrice', math.ceil(Config.Price.base + (Config.Price.tick * ((GetGameTimer() - task.startTime) / Config.Price.tickTime))))
+    taxi.finished = true
 end
 
 leaveTarget = function()
-    taxiOnRoad = false
-    taxiInDriveMode = false
-    taxiDriveFinished = false
-    taxiDriveCancelled = false
-    taskStartPosition = nil
-    taskEndPosition = nil
-
-    local blip, vehicle, npc = taskBlip, taskVehicle, taskNPC
-    taskBlip = nil
-    taskVehicle = nil
-    taskNPC = nil
+    local blip, vehicle, npc = task.blip, task.vehicle, task.npc
+    taxi = {}
+    task = {}
 
     if blip then RemoveBlip(blip) end
     if vehicle and npc then
@@ -186,11 +230,11 @@ leaveTarget = function()
 end
 
 enteringVehicle = function(vehicle, plate, seat)
-    if not taxiOnRoad then return end
-    if vehicle ~= taskVehicle then return end
+    if not taxi.onRoad then return end
+    if vehicle ~= task.vehicle then return end
     if seat ~= 0 and seat ~= -1 then return end
 
-    while true and vehicle == taskVehicle do
+    while true and vehicle == task.vehicle do
         if IsPedInVehicle(PlayerPedId(), vehicle, false) then
             SetPedIntoVehicle(PlayerPedId(), vehicle, 0)
             break
@@ -201,40 +245,35 @@ end
 AddEventHandler('msk_enginetoggle:enteringVehicle', enteringVehicle)
 
 enteredVehicle = function(vehicle, plate, seat)
-    if not taxiOnRoad then return end
+    if not taxi.onRoad then return end
     
-    if vehicle ~= taskVehicle then 
+    if vehicle ~= task.vehicle then 
         abortTaxiDrive() 
         return
     end
 
-    if taskBlip then 
-        RemoveBlip(taskBlip) 
-        taskBlip = nil
+    if task.blip then 
+        RemoveBlip(task.blip) 
+        task.blip = nil
     end
 
     SetVehicleDoorsShut(vehicle, false)
-    SetPedIntoVehicle(PlayerPedId(), taskVehicle, seat)
-    PlayPedAmbientSpeechNative(taskNPC, "TAXID_WHERE_TO", "SPEECH_PARAMS_FORCE_NORMAL")
-    AdvancedNotification(Translation[Config.Locale]['welcome']:format(taskDriverName), 'Downtown Cab Co.', taskDriverName, 'CHAR_TAXI')
+    SetPedIntoVehicle(PlayerPedId(), task.vehicle, seat)
+    PlayPedAmbientSpeechNative(task.npc, "TAXID_WHERE_TO", "SPEECH_PARAMS_FORCE_NORMAL")
+    AdvancedNotification(Translation[Config.Locale]['welcome']:format(taxi.driverName), 'Downtown Cab Co.', taxi.driverName, 'CHAR_TAXI')
 
-    while taxiOnRoad and not IsWaypointActive() do
-        Wait(1000)
-    end
-    Wait(2500)
-    if not taxiOnRoad then return end
-    if not IsWaypointActive() then return end
-
-    startDriveToCoords(GetBlipCoords(GetFirstBlipInfoId(8)))
+    if taxi.entered then return end
+    taxi.entered = true
+    checkWaypoint()
 end
 AddEventHandler('msk_enginetoggle:enteredVehicle', enteredVehicle)
 
 exitedVehicle = function(vehicle, plate, seat)
-    if not taxiOnRoad then return end
-    if not taxiInDriveMode then return end
-    if vehicle ~= taskVehicle then return end
+    if not taxi.onRoad then return end
+    if not taxi.inDriveMode then return end
+    if vehicle ~= task.vehicle then return end
 
-    if not taxiDriveCancelled and not taxiDriveFinished then
+    if not taxi.canceled and not taxi.finished then
         abortTaxiDrive()
     end
 
@@ -291,34 +330,25 @@ CreateThread(function()
     while true do
         local sleep = 500
 
-        if taxiOnRoad and taskVehicle then
-            SetVehicleIndividualDoorsLocked(taskVehicle, 0, 2)
-            SetVehicleDoorCanBreak(taskVehicle, 0, false)
-
-            if taskEndPosition and not taxiDriveCancelled and not taxiDriveFinished then
-                local speed = (Config.SpeedZones[getVehNodeType(GetEntityCoords(taskVehicle))] or Config.SpeedZones[2]) / Config.SpeedType
-                TaskVehicleDriveToCoordLongrange(taskNPC, taskVehicle, taskEndPosition.x, taskEndPosition.y, taskEndPosition.z, speed, Config.DrivingStyle, 5.0)
-                SetPedKeepTask(taskNPC, true)
-            end
+        if taxi.onRoad and task.vehicle then
+            SetVehicleIndividualDoorsLocked(task.vehicle, 0, 2)
+            SetVehicleDoorCanBreak(task.vehicle, 0, false)
         end
 
         Wait(sleep)
     end
 end)
 
-CreateThread(function()
-    while true do
-        local sleep = 500
+drawPrice = function()
+    while taxi.onRoad and taxi.inDriveMode and not taxi.canceled and not taxi.finished do
+        local sleep = 1
 
-        if taxiOnRoad and taskVehicle and taxiInDriveMode and taskStartPosition and not taxiDriveCancelled and not taxiDriveFinished then
-            sleep = 1
-            HelpNotification(Translation[Config.Locale]['input']:format(Config.AbortTaxiDrive.hotkey))
-            DrawGenericText(Translation[Config.Locale]['price']:format(comma(math.ceil(Config.Price.base + (Config.Price.tick * ((GetGameTimer() - taskStartTime) / Config.Price.tickTime))))))
-        end
+        HelpNotification(Translation[Config.Locale]['input']:format(Config.AbortTaxiDrive.hotkey))
+        DrawGenericText(Translation[Config.Locale]['price']:format(comma(math.ceil(Config.Price.base + (Config.Price.tick * ((GetGameTimer() - task.startTime) / Config.Price.tickTime))))))
 
         Wait(sleep)
     end
-end)
+end
 
 loadModel = function(modelHash)
     if not HasModelLoaded(modelHash) then
@@ -327,24 +357,6 @@ loadModel = function(modelHash)
         while not HasModelLoaded(modelHash) do
             Wait(1)
         end
-    end
-end
-
-GetAvailableParkingSpots = function()
-    local found, coords = false, {}
-
-    for k, v in pairs(Config.SpawnCoords) do
-		if ESX.Game.IsSpawnPointClear(vector3(v.x, v.y, v.z), 3.0) then
-			found = true 
-            coords = v
-			break
-		end
-	end
-
-    if found then
-        return true, coords
-    else
-        return false
     end
 end
 
@@ -380,6 +392,17 @@ HelpNotification = function(text)
     EndTextCommandDisplayHelp(0, false, true, -1)
 end
 
+AdvancedNotification = function(text, title, subtitle, icon, flash, icontype)
+    if not flash then flash = true end
+    if not icontype then icontype = 1 end
+    if not icon then icon = 'CHAR_HUMANDEFAULT' end
+
+    BeginTextCommandThefeedPost('STRING')
+    AddTextComponentSubstringPlayerName(text)
+    EndTextCommandThefeedPostMessagetext(icon, icon, flash, icontype, title, subtitle)
+	EndTextCommandThefeedPostTicker(false, true)
+end
+
 DrawGenericText = function(text)
 	SetTextColour(Config.Price.color.r, Config.Price.color.g, Config.Price.color.b, Config.Price.color.a)
 	SetTextFont(0)
@@ -392,15 +415,4 @@ DrawGenericText = function(text)
 	BeginTextCommandDisplayText("STRING")
 	AddTextComponentSubstringPlayerName(text)
 	EndTextCommandDisplayText(Config.Price.position.width, Config.Price.position.height)
-end
-
-AdvancedNotification = function(text, title, subtitle, icon, flash, icontype)
-    if not flash then flash = true end
-    if not icontype then icontype = 1 end
-    if not icon then icon = 'CHAR_TAXI' end
-
-    BeginTextCommandThefeedPost('STRING')
-    AddTextComponentSubstringPlayerName(text)
-    EndTextCommandThefeedPostMessagetext(icon, icon, flash, icontype, title, subtitle)
-	EndTextCommandThefeedPostTicker(false, true)
 end

@@ -12,7 +12,11 @@ Config.Notification = function(source, message, typ)
     end
 end
 ----------------------------------------------------------------
--- You'll need esx_addonaccount for that!
+-- If set to 'Standalone' then you have to add your own functions in server.lua
+Config.Framework = 'ESX' -- Set to 'ESX', 'QBCore' or 'Standalone'
+----------------------------------------------------------------
+-- For ESX you'll need esx_addonaccount for that!
+-- For QBCore you'll need qb-banking for that!
 Config.Society = {
     enable = false, -- Set false if you don't want that the Price will be added to a society account
     account = 'society_taxi'
@@ -30,11 +34,7 @@ Config.AbortTaxiDrive = {
     hotkey = 'X'
 }
 
--- You can set multiple spawn points
-Config.SpawnCoords = {
-    vector4(902.85, -143.56, 76.6, 322.2),
-}
-
+Config.SpawnRadius = 200.0 -- default: 200.0 meters // Do not set more than 200.0!
 Config.DrivingStyle = 786731 -- default: 786731 // https://vespura.com/fivem/drivingstyle/
 Config.SpeedType = 3.6 -- kmh = 3.6 // mph = 2.236936
 Config.SpeedZones = {

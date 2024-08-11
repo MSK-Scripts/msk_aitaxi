@@ -1,3 +1,11 @@
+if Config.Framework == 'ESX' then
+    ESX = exports["es_extended"]:getSharedObject()
+elseif Config.Framework == 'QBCore' then
+    QBCore = exports['qb-core']:GetCoreObject()
+elseif Config.Framework == 'Standalone' then
+    -- Add your own code here
+end
+
 round = function(num, decimal)
     return tonumber(string.format("%." .. (decimal or 0) .. "f", num))
 end
@@ -19,19 +27,41 @@ end
 
 RegisterNetEvent('msk_aitaxi:payTaxiPrice', function(payAmount)
     local src = source
-    local xPlayer = ESX.GetPlayerFromId(src)
-    local account = 'money'
     payAmount = round(payAmount)
 
-    if xPlayer.getAccount('money').money < payAmount then account = 'bank' end
-    xPlayer.removeAccountMoney(account, payAmount)
+    if Config.Framework == 'ESX' then
+        local xPlayer = ESX.GetPlayerFromId(src)
+        local account = 'money'
+
+        if xPlayer.getAccount('money').money < payAmount then account = 'bank' end
+        xPlayer.removeAccountMoney(account, payAmount)
+    elseif Config.Framework == 'QBCore' then
+        local Player = QBCore.Functions.GetPlayer(src)
+        local account = 'cash'
+
+        if Player.Functions.GetMoney('cash') < payAmount then account = 'bank' end
+        Player.Functions.RemoveMoney(account, payAmount)
+    elseif Config.Framework == 'Standalone' then
+        -- Add your own code here
+    end
+
     Config.Notification(src, Translation[Config.Locale]['paid']:format(comma(payAmount)))
     
     if Config.Society.enable then
-        TriggerEvent('esx_addonaccount:getSharedAccount', Config.Society.account, function(account)
+        if Config.Framework == 'ESX' then
+            TriggerEvent('esx_addonaccount:getSharedAccount', Config.Society.account, function(account)
+                if not account then return print(('^1Society %s not found on Event ^2 msk_aitaxi:payTaxiPrice ^0'):format(Config.Society.account)) end
+                
+                account.addMoney(payAmount)
+            end)
+        elseif Config.Framework == 'QBCore' then
+            local account = exports['qb-banking']:GetAccount(Config.Society.account)
             if not account then return print(('^1Society %s not found on Event ^2 msk_aitaxi:payTaxiPrice ^0'):format(Config.Society.account)) end
-            account.addMoney(payAmount)
-        end)
+            
+            exports['qb-banking']:AddMoney(Config.Society.account, payAmount, 'Taxi')
+        elseif Config.Framework == 'Standalone' then
+            -- Add your own code here
+        end
     end
 end)
 
