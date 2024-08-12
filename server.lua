@@ -1,7 +1,53 @@
 if Config.Framework == 'ESX' then
     ESX = exports["es_extended"]:getSharedObject()
+
+    ESX.RegisterServerCallback('msk_aitaxi:getOnlineTaxi', function(source, cb)
+        local src = source
+        local OnlineTaxi = 0
+        local xPlayers = ESX.GetExtendedPlayers()
+
+        local hasTaxiJob = function(playerJob)
+            for k, job in pairs(Config.Jobs.jobs) do
+                if job == playerJob then
+                    return true
+                end
+            end
+            return false
+        end
+    
+        for k, xPlayer in pairs(xPlayers) do
+            if hasTaxiJob(xPlayer.job.name) then
+                OnlineTaxi = OnlineTaxi + 1
+            end
+        end
+    
+       cb(OnlineTaxi)
+    end)
 elseif Config.Framework == 'QBCore' then
     QBCore = exports['qb-core']:GetCoreObject()
+
+    QBCore.Functions.CreateCallback('msk_aitaxi:getOnlineTaxi', function(source, cb)
+        local src = source
+        local OnlineTaxi = 0
+        local Players = QBCore.Functions.GetQBPlayers()
+
+        local hasTaxiJob = function(playerJob)
+            for k, job in pairs(Config.Jobs.jobs) do
+                if job == playerJob then
+                    return true
+                end
+            end
+            return false
+        end
+
+        for k, Player in pairs(Players) do
+            if hasTaxiJob(Player.PlayerData.job.name) then
+                OnlineTaxi = OnlineTaxi + 1
+            end
+        end
+
+        cb(OnlineTaxi)
+    end)
 elseif Config.Framework == 'Standalone' then
     -- Add your own code here
 end

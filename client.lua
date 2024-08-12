@@ -28,6 +28,28 @@ end
 exports('toggleCanCallTaxi', toggleCanCallTaxi)
 RegisterNetEvent('msk_aitaxi:canCallTaxi', toggleCanCallTaxi)
 
+getCanCallTaxi = function()
+    if not canCallTaxi then return false end
+    if not Config.Jobs.enable then return canCallTaxi end
+    local p = promise.new()
+
+    if Config.Framework == 'ESX' then
+        ESX.TriggerServerCallback('msk_aitaxi:getOnlineTaxi', function(OnlineTaxi)
+            p:resolve(OnlineTaxi)
+        end)
+    elseif Config.Framework == 'QBCore' then
+        QBCore.Functions.TriggerCallback('msk_aitaxi:getOnlineTaxi', function(OnlineTaxi)
+            p:resolve(OnlineTaxi)
+        end)
+    elseif Config.Framework == 'Standalone' then
+        -- Add your own code here
+    end
+
+    local result = Citizen.Await(p)
+    return result <= Config.Jobs.amount
+end
+exports('getCanCallTaxi', getCanCallTaxi)
+
 getStartingLocation = function(coords)
     local found, spawnPos, spawnHeading = GetClosestVehicleNodeWithHeading(coords.x + math.random(-Config.SpawnRadius, Config.SpawnRadius), coords.y + math.random(-Config.SpawnRadius, Config.SpawnRadius), coords.z, 0, 3.0, 0)
     return found, spawnPos, spawnHeading
@@ -44,7 +66,7 @@ getVehNodeType = function(coords)
 end
 
 callTaxi = function()
-    if not canCallTaxi then return end
+    if not getCanCallTaxi() then return end
     local npcId, vehId = math.random(#Config.Taxi.pedmodels), math.random(#Config.Taxi.vehicles)
     local npc, veh = Config.Taxi.pedmodels[npcId], Config.Taxi.vehicles[vehId]
     taxi.driverName = npc.name or 'Alex'
@@ -150,6 +172,7 @@ startDriveToCoords = function(waypoint)
 
     while taxi.onRoad and taxi.inDriveMode and not taxi.canceled and not taxi.finished do
         Wait(500)
+        if taxi.canceled then return end
         local vehicleCoords = GetEntityCoords(task.vehicle)
         local distance = #(toCoords - vehicleCoords)
 

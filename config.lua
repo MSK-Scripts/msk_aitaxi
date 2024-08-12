@@ -54,6 +54,15 @@ Config.Price = {
     color = {r = 255, g = 255, b = 255, a = 255},
     position = {height = 0.90, width = 0.50}
 }
+
+Config.Jobs = {
+    enable = true, -- Set false to deactivate this feature
+    amount = 0, -- Maximum players online in this jobs to call a taxi
+    jobs = {
+        'taxi',
+        'taxi2',
+    }
+}
 ----------------------------------------------------------------
 -- It will use a random vehicle and random pedmodel from the list below
 Config.Taxi = {
