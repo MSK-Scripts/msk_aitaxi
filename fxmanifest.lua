@@ -4,9 +4,11 @@ games { 'gta5' }
 author 'Musiker15 - MSK Scripts'
 name 'msk_aitaxi'
 description 'AI Taxi NPC'
-version '1.1.0'
+version '1.2.0'
 
 lua54 'yes'
+
+dependency 'msk_core'
 
 shared_scripts {
 	'config.lua',

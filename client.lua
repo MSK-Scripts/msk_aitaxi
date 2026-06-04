@@ -1,6 +1,22 @@
 local canCallTaxi = true
 local task, taxi = {}, {}
 
+-- Locale-Fallback: verhindert Nil-Index bei falsch gesetztem Config.Locale.
+local Locale = Locale or Translation['en']
+
+-- Server-autoritativer Preis: dieselbe Formel, aber clientseitig NUR für die Anzeige.
+local calcDisplayPrice = function()
+    if not task.startTime then return 0 end
+    return math.ceil(Config.Price.base + (Config.Price.tick * ((GetGameTimer() - task.startTime) / Config.Price.tickTime)))
+end
+
+-- Forward-Deklarationen: erlauben gegenseitige Referenzen trotz local-Scoping.
+local getCanCallTaxi, getStartingLocation, getStoppingLocation, getVehNodeType
+local callTaxi, spawnVehicle, startDriveToPlayer, checkWaypoint, startDriveToCoords
+local abortTaxiDrive, leaveTarget, enteringVehicle, enteredVehicle, exitedVehicle
+local enteringVehicleAborted, drawPrice, loadModel, GetPedVehicleSeat
+local round, comma, HelpNotification, AdvancedNotification, DrawGenericText
+
 if Config.Framework == 'ESX' then
     ESX = exports["es_extended"]:getSharedObject()
 elseif Config.Framework == 'QBCore' then
@@ -22,7 +38,7 @@ if Config.AbortTaxiDrive.enable then
     RegisterKeyMapping(Config.AbortTaxiDrive.command, 'Abort Taxi Drive', 'keyboard', Config.AbortTaxiDrive.hotkey)
 end
 
-toggleCanCallTaxi = function(toggle)
+local toggleCanCallTaxi = function(toggle)
     canCallTaxi = toggle
 end
 exports('toggleCanCallTaxi', toggleCanCallTaxi)
@@ -51,7 +67,9 @@ end
 exports('getCanCallTaxi', getCanCallTaxi)
 
 getStartingLocation = function(coords)
-    local found, spawnPos, spawnHeading = GetClosestVehicleNodeWithHeading(coords.x + math.random(-Config.SpawnRadius, Config.SpawnRadius), coords.y + math.random(-Config.SpawnRadius, Config.SpawnRadius), coords.z, 0, 3.0, 0)
+    -- math.random benötigt Ganzzahlen (Lua 5.4) → Radius abrunden.
+    local r = math.floor(Config.SpawnRadius)
+    local found, spawnPos, spawnHeading = GetClosestVehicleNodeWithHeading(coords.x + math.random(-r, r), coords.y + math.random(-r, r), coords.z, 0, 3.0, 0)
     return found, spawnPos, spawnHeading
 end
 
@@ -75,14 +93,16 @@ callTaxi = function()
     local driverHash = GetHashKey(npc.model)
     local vehHash = GetHashKey(veh)
 
-    loadModel(driverHash)
-    loadModel(vehHash)
+    if not loadModel(driverHash) or not loadModel(vehHash) then
+        AdvancedNotification(Locale['not_available'], 'Downtown Cab Co.', 'Taxi', 'CHAR_TAXI')
+        return
+    end
 
     local playerCoords = GetEntityCoords(PlayerPedId())
     local vehicleSpawned = spawnVehicle(playerCoords, driverHash, vehHash)
 
     if not vehicleSpawned then 
-        AdvancedNotification(Translation[Config.Locale]['not_available'], 'Downtown Cab Co.', 'Taxi', 'CHAR_TAXI')
+        AdvancedNotification(Locale['not_available'], 'Downtown Cab Co.', 'Taxi', 'CHAR_TAXI')
         return 
     end
 
@@ -105,6 +125,11 @@ spawnVehicle = function(playerCoords, driverHash, vehHash)
     SetEntityAsMissionEntity(task.vehicle, true, true)
 
     task.npc = CreatePedInsideVehicle(task.vehicle, 26, driverHash, -1, true, true)
+
+    -- Modelle nach dem Spawn freigeben (Speicher).
+    SetModelAsNoLongerNeeded(driverHash)
+    SetModelAsNoLongerNeeded(vehHash)
+
     SetAmbientVoiceName(task.npc, taxi.driverVoice)
     SetBlockingOfNonTemporaryEvents(task.npc, true)
     SetDriverAbility(task.npc, 1.0)
@@ -124,7 +149,7 @@ startDriveToPlayer = function(playerCoords)
 
     TaskVehicleDriveToCoordLongrange(task.npc, task.vehicle, toCoords.x, toCoords.y, toCoords.z, speed, Config.DrivingStyle, 5.0)
     SetPedKeepTask(task.npc, true)
-    AdvancedNotification(Translation[Config.Locale]['on_the_way'], 'Downtown Cab Co.', 'Taxi', 'CHAR_TAXI')
+    AdvancedNotification(Locale['on_the_way'], 'Downtown Cab Co.', 'Taxi', 'CHAR_TAXI')
     taxi.onRoad = true
 
     while taxi.onRoad and not taxi.inDriveMode do
@@ -161,6 +186,8 @@ end
 
 startDriveToCoords = function(waypoint)
     task.startTime = GetGameTimer()
+    -- Server-autoritativ: Server merkt sich den Fahrt-Start für die Preisberechnung.
+    TriggerServerEvent('msk_aitaxi:startRide')
     PlayPedAmbientSpeechNative(task.npc, "TAXID_BEGIN_JOURNEY", "SPEECH_PARAMS_FORCE_NORMAL")
 
     local toCoords = getStoppingLocation(waypoint)
@@ -190,8 +217,9 @@ startDriveToCoords = function(waypoint)
 
         if distance < 10.0 then
             PlayPedAmbientSpeechNative(task.npc, "TAXID_CLOSE_AS_POSS", "SPEECH_PARAMS_FORCE_NORMAL")
-            AdvancedNotification(Translation[Config.Locale]['end'], 'Downtown Cab Co.', taxi.driverName, 'CHAR_TAXI')
-            TriggerServerEvent('msk_aitaxi:payTaxiPrice', math.ceil(Config.Price.base + (Config.Price.tick * ((GetGameTimer() - task.startTime) / Config.Price.tickTime))))
+            AdvancedNotification(Locale['end'], 'Downtown Cab Co.', taxi.driverName, 'CHAR_TAXI')
+            -- Kein Betrag mehr: der Server berechnet den Preis selbst.
+            TriggerServerEvent('msk_aitaxi:endRide')
             taxi.finished = true
             break
         end
@@ -208,23 +236,24 @@ abortTaxiDrive = function(keyPressed)
     taxi.canceled = true
 
     if not taxi.inDriveMode then
-        AdvancedNotification(Translation[Config.Locale]['abort'], 'Downtown Cab Co.', taxi.driverName, 'CHAR_TAXI')
+        AdvancedNotification(Locale['abort'], 'Downtown Cab Co.', taxi.driverName, 'CHAR_TAXI')
         leaveTarget()
         return
     end
 
     if not taxi.finished and not keyPressed then
-        AdvancedNotification(Translation[Config.Locale]['abort'], 'Downtown Cab Co.', taxi.driverName, 'CHAR_TAXI')
+        AdvancedNotification(Locale['abort'], 'Downtown Cab Co.', taxi.driverName, 'CHAR_TAXI')
         leaveTarget()
         return
     end
 
     if not taxi.finished and keyPressed then
-        AdvancedNotification(Translation[Config.Locale]['abort'], 'Downtown Cab Co.', taxi.driverName, 'CHAR_TAXI')
+        AdvancedNotification(Locale['abort'], 'Downtown Cab Co.', taxi.driverName, 'CHAR_TAXI')
         TaskVehicleTempAction(task.npc, task.vehicle, 27, 1000)
     end
 
-    TriggerServerEvent('msk_aitaxi:payTaxiPrice', math.ceil(Config.Price.base + (Config.Price.tick * ((GetGameTimer() - task.startTime) / Config.Price.tickTime))))
+    -- Kein Betrag mehr: der Server berechnet den Preis selbst.
+    TriggerServerEvent('msk_aitaxi:endRide')
     taxi.finished = true
 end
 
@@ -283,7 +312,7 @@ enteredVehicle = function(vehicle, plate, seat)
     SetVehicleDoorsShut(vehicle, false)
     SetPedIntoVehicle(PlayerPedId(), task.vehicle, seat)
     PlayPedAmbientSpeechNative(task.npc, "TAXID_WHERE_TO", "SPEECH_PARAMS_FORCE_NORMAL")
-    AdvancedNotification(Translation[Config.Locale]['welcome']:format(taxi.driverName), 'Downtown Cab Co.', taxi.driverName, 'CHAR_TAXI')
+    AdvancedNotification(Locale['welcome']:format(taxi.driverName), 'Downtown Cab Co.', taxi.driverName, 'CHAR_TAXI')
 
     if taxi.entered then return end
     taxi.entered = true
@@ -366,21 +395,28 @@ drawPrice = function()
     while taxi.onRoad and taxi.inDriveMode and not taxi.canceled and not taxi.finished do
         local sleep = 1
 
-        HelpNotification(Translation[Config.Locale]['input']:format(Config.AbortTaxiDrive.hotkey))
-        DrawGenericText(Translation[Config.Locale]['price']:format(comma(math.ceil(Config.Price.base + (Config.Price.tick * ((GetGameTimer() - task.startTime) / Config.Price.tickTime))))))
+        HelpNotification(Locale['input']:format(Config.AbortTaxiDrive.hotkey))
+        DrawGenericText(Locale['price']:format(comma(calcDisplayPrice())))
 
         Wait(sleep)
     end
 end
 
 loadModel = function(modelHash)
+    if not IsModelValid(modelHash) then return false end
+
     if not HasModelLoaded(modelHash) then
         RequestModel(modelHash)
-    
+
+        local timeout = 0
         while not HasModelLoaded(modelHash) do
             Wait(1)
+            timeout = timeout + 1
+            if timeout > 5000 then return false end -- ~5s Abbruch statt Endlosschleife
         end
     end
+
+    return true
 end
 
 GetPedVehicleSeat = function(ped, vehicle)
@@ -439,3 +475,11 @@ DrawGenericText = function(text)
 	AddTextComponentSubstringPlayerName(text)
 	EndTextCommandDisplayText(Config.Price.position.width, Config.Price.position.height)
 end
+
+-- Entity-Cleanup beim Resource-Stop: keine Waisen-Taxis nach ensure/Restart.
+AddEventHandler('onResourceStop', function(res)
+    if res ~= GetCurrentResourceName() then return end
+    if task.blip then RemoveBlip(task.blip) end
+    if task.npc and DoesEntityExist(task.npc) then DeleteEntity(task.npc) end
+    if task.vehicle and DoesEntityExist(task.vehicle) then DeleteEntity(task.vehicle) end
+end)

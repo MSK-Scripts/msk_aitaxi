@@ -49,7 +49,8 @@ Config.SpeedZones = {
 Config.Price = {
     base = 20, -- Price for driving to your position
     tick = 0.15, -- Price per tick
-    tickTime = 50, 
+    tickTime = 50,
+    maxPrice = 2000, -- Security cap against exploits: server clamps the charged price to this maximum
 
     color = {r = 255, g = 255, b = 255, a = 255},
     position = {height = 0.90, width = 0.50}
