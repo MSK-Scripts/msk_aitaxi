@@ -6,9 +6,9 @@ Config.VersionChecker = true
 -- !!! This function is clientside AND serverside !!!
 Config.Notification = function(source, message, typ)
     if IsDuplicityVersion() then -- serverside
-        exports.msk_core:Notification(source, 'AI Taxi', message, typ)
+        exports.msk_core:Notification(source, { title = 'AI Taxi', message = message, type = typ })
     else -- clientside
-        exports.msk_core:Notification('AI Taxi', message, typ)
+        exports.msk_core:Notification({ title = 'AI Taxi', message = message, type = typ })
     end
 end
 ----------------------------------------------------------------
