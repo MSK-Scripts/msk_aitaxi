@@ -4,7 +4,7 @@ games { 'gta5' }
 author 'Musiker15 - MSK Scripts'
 name 'msk_aitaxi'
 description 'AI Taxi NPC'
-version '1.2.0'
+version '1.2.1'
 
 lua54 'yes'
 
